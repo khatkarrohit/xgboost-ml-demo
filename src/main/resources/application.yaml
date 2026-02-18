@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: xgboost-ml-demo
+
+xgboost:
+  model:
+    path: model.json
