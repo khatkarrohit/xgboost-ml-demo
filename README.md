@@ -48,7 +48,14 @@ Think of SHAP values as "credit assignment". If a person has an 80% risk score, 
 - **Positive SHAP Value**: This factor increased the risk (e.g., "High Cholesterol"). These are returned as **Bad Reasons**.
 - **Negative SHAP Value**: This factor decreased the risk (e.g., "High Exercise Intensity"). These are returned as **Good Reasons**.
 
-In `XGBoostService.java`, we use the `predictContrib()` method to get these values and then map them to human-readable explanations.
+### Why Native XGBoost instead of `shap4j`?
+A common question is whether to use external libraries like `shap4j`. This project intentionally uses the built-in `predictContrib()` method from the XGBoost library for several reasons:
+1.  **Performance**: The native XGBoost implementation (Tree SHAP) is extremely fast as it runs directly in C++ via JNI.
+2.  **Accuracy**: It is the official implementation of SHAP for XGBoost models, ensuring the most accurate contribution values.
+3.  **Simplicity**: It avoids adding extra dependencies that might be unmaintained or provide slower (model-agnostic) versions of SHAP.
+4.  **Maintainability**: We use a dynamic `FeatureDescriptor` approach in `XGBoostService.java` to map these values to human-readable reasons, making it easy to add or change features without complex external logic.
+
+In `XGBoostService.java`, we capture these contributions and use a lookup map to provide friendly health advice.
 
 ---
 
@@ -104,6 +111,29 @@ You can interact with the running application using tools like **Postman**, **In
 ### 2. Retrain the Model
 If you want the model to learn again from a new set of synthetic data:
 **Endpoint**: `POST /api/prediction/retrain`
+
+---
+
+## 🛠️ Technical Deep Dive (For Developers)
+
+Even if you are new to Machine Learning, understanding these two concepts will help you work with XGBoost in Java:
+
+### 1. What is a `DMatrix`?
+In most Java programs, we use `Arrays` or `Lists` to store data. However, XGBoost is written in highly optimized **C++**. 
+- A **`DMatrix`** is a special container that wraps your Java data and prepares it for the C++ engine. 
+- It handles things like "missing values" and memory layout so the model can learn as fast as possible.
+- In `XGBoostService.java`, you will see us converting our `float[]` arrays into `DMatrix` before training or predicting.
+
+### 2. Manual Memory Management (`dispose()`)
+Java usually handles memory automatically (Garbage Collector). But because `DMatrix` and `Booster` use **Native Memory** (memory outside the normal Java heap, managed by C++), Java doesn't know when to clean it up.
+- We must manually call **`.dispose()`** on every `DMatrix` and `Booster` object once we are done with them.
+- **Best Practice**: Use `try-finally` blocks (or `@PreDestroy` for long-lived objects like the `Booster`) to ensure that `dispose()` is called even if an error occurs.
+- If we forget this, the application will leak memory, which can lead to `OutOfMemoryError` or system crashes, even if the Java Garbage Collector seems to have plenty of free space.
+
+### 3. Training Hyperparameters (Why 1000 and 50?)
+In `XGBoostService.java`, we use specific numbers for training:
+- **`trainCount = 1000`**: This is the number of "virtual patients" we generate to teach the model. For a simple problem with 5 features, 1000 examples are enough for the model to learn the patterns without taking too much time or memory.
+- **`round = 50`**: This is the number of "boosting rounds" (number of trees the model builds). Each new tree tries to fix the mistakes of the previous ones. 50 rounds are usually enough for this problem to reach high accuracy. Using too many rounds (e.g., 5000) might make the model "overfit," meaning it starts memorizing the fake data instead of learning general patterns.
 
 ---
 

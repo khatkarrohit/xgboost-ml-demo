@@ -12,6 +12,10 @@ public class DataService {
 
     private final Random random = new Random();
 
+    /**
+     * Generates a list of synthetic health profiles for training.
+     * Each profile contains random but realistic health metrics.
+     */
     public List<PredictionRequest> generateFeatures(int count) {
         List<PredictionRequest> data = new ArrayList<>();
         for (int i = 0; i < count; i++) {
@@ -26,6 +30,19 @@ public class DataService {
         return data;
     }
 
+    /**
+     * Generates labels (0 or 1) for a list of health profiles.
+     * This method implements a "Ground Truth" logic that the XGBoost model will try to learn.
+     * 
+     * The formula assigns weights to different factors:
+     * - Age (40% weight): Higher age increases risk.
+     * - Cholesterol (30% weight): Higher cholesterol increases risk.
+     * - Blood Pressure (20% weight): Higher BP increases risk.
+     * - Heart Rate (10% weight): Higher HR increases risk.
+     * - Exercise (-20% weight): Higher exercise intensity decreases risk.
+     * 
+     * We also add some random noise to make the learning task more realistic.
+     */
     public float[] generateLabels(List<PredictionRequest> features) {
         float[] labels = new float[features.size()];
         for (int i = 0; i < features.size(); i++) {
