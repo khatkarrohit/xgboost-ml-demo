@@ -21,6 +21,7 @@ repositories {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("ml.dmlc:xgboost4j_2.13:3.2.0")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
     compileOnly("org.projectlombok:lombok")

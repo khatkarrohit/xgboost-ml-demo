@@ -179,6 +179,93 @@ xgboost:
 - **Model Format**: JSON (Human-readable and easy to inspect)
 - **Dependencies**: Includes `jackson-databind` for JSON compatibility with the XGBoost library.
 
+## 🧪 Memory Management Lab: The Impact of `dispose()`
+
+As mentioned in the Technical Deep Dive, calling `.dispose()` on native XGBoost objects (`DMatrix`, `Booster`) is critical. This project includes a built-in "Lab" to help you observe this impact.
+
+### Why is this necessary?
+XGBoost is a C++ library. When you create a `DMatrix` in Java, it allocates memory in the **Native Heap** (managed by the OS, not the JVM). 
+- If you **don't** call `dispose()`, this memory stays allocated forever.
+- The Java Garbage Collector (GC) cannot see or free this memory.
+- Eventually, your app will crash with an `OutOfMemoryError` or be killed by the OS.
+
+### How to Run the Experiment
+
+#### 1. Start the App with Native Memory Tracking (NMT)
+Run the application with the JVM flag that enables memory tracking:
+```bash
+# Using gradlew (add the flag to application arguments if configured, 
+# or run the JAR directly after building)
+java -XX:NativeMemoryTracking=summary -jar build/libs/xgboost-ml-demo-0.0.1-SNAPSHOT.jar
+```
+
+#### 2. Monitor Memory Usage
+Open a separate terminal and run the included monitoring script:
+```powershell
+./monitor_memory.ps1
+```
+
+#### 3. Run the "Safe" Stress Test
+Trigger 500,000 predictions **with** `dispose()`:
+```powershell
+./stress_test.ps1 -count 500000
+```
+**Observation**: You should see memory usage remain stable or return to baseline after the test finishes.
+
+#### 4. Run the "Leaky" Stress Test
+Trigger 500,000 predictions **without** `dispose()` (simulated leak):
+```powershell
+./stress_test.ps1 -count 500000 -leak
+```
+**Observation**: Watch the `Private Memory` in `monitor_memory.ps1`. It will spike and **not** go down. Each 100-request batch leaks a small amount of native memory. If you run this enough times, the app will crash.
+
+#### 5. Verify with JCMD
+You can see exactly where the memory is leaked using the JDK's `jcmd` tool:
+```bash
+jcmd <pid> VM.native_memory summary
+```
+Look for the `Internal` or `Other` sections, which often grow when JNI/Native memory is leaked.
+
+### 6. Docker (The Ultimate "Contained" Environment)
+Using Docker is the best way to analyze memory because it isolates the application from the host and allows you to set strict resource limits.
+
+**Why Docker helps analyze memory better:**
+1.  **Isolation**: You monitor *only* the application's memory usage, without interference from other host processes.
+2.  **Strict Limits**: You can set a hard memory limit (e.g., 512MB). If the app leaks native memory, the OS (via Docker) will kill it (`OOMKilled`). This is a definitive way to prove a leak exists.
+3.  **No Host Tooling**: You don't need `monitor_memory.ps1` if you use `docker stats`.
+
+**Steps to Run the Docker Lab:**
+1.  **Start the Container**:
+    ```bash
+    docker-compose up --build
+    ```
+2.  **Monitor with Docker Stats**:
+    In a new terminal, run:
+    ```bash
+    docker stats
+    ```
+    This shows real-time memory usage (RSS/Working Set) for the container.
+3.  **Run the Leaky Test**:
+    ```powershell
+    ./stress_test.ps1 -count 500000 -leak
+    ```
+4.  **Observe OOMKilled**:
+    As the native memory grows (visible in `docker stats`), the container will eventually reach its 512MB limit and be forcibly stopped by Docker. You can verify this by running:
+    ```bash
+    docker inspect <container_id> --format='{{.State.OOMKilled}}'
+    ```
+
+### 🏆 Official Lab Results
+You can view a detailed, manually verified report in [LAB_REPORT.md](LAB_REPORT.md). 
+
+To generate a fresh report on your own system, run the automated script:
+```powershell
+./run_lab_report.ps1
+```
+This will automatically build the environment, run the comparison tests, and save the results in `LAB_RESULTS_AUTOMATED.md`.
+
+---
+
 ## 📚 Reference Documentation
 For further reference, please consider the following sections:
 - [Official Gradle documentation](https://docs.gradle.org)

@@ -176,6 +176,14 @@ public class XGBoostService {
      * as it reduces JNI overhead and allows XGBoost to parallelize the work.
      */
     public List<PredictionResponse> predictBatch(List<PredictionRequest> requests) throws XGBoostError {
+        return predictBatch(requests, true);
+    }
+
+    /**
+     * Advanced prediction method that allows toggling the dispose() call.
+     * Use with shouldDispose = false ONLY for demonstrating memory leaks.
+     */
+    public List<PredictionResponse> predictBatch(List<PredictionRequest> requests, boolean shouldDispose) throws XGBoostError {
         if (this.booster == null) {
             throw new RuntimeException("Model not initialized");
         }
@@ -196,11 +204,9 @@ public class XGBoostService {
         
         try {
             // 1. Get probability scores for all rows
-            // prediction[row_index][class_index]
             float[][] predictions = this.booster.predict(data);
 
             // 2. Get SHAP values for all rows
-            // contribs[row_index][feature_index]
             float[][] contribs = this.booster.predictContrib(data, 0);
 
             List<PredictionResponse> responses = new ArrayList<>(nrow);
@@ -212,7 +218,11 @@ public class XGBoostService {
             }
             return responses;
         } finally {
-            data.dispose();
+            if (shouldDispose) {
+                data.dispose();
+            } else {
+                System.out.println("[WARNING] DMatrix NOT disposed! Native memory leak simulated.");
+            }
         }
     }
 

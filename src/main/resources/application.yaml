@@ -5,3 +5,9 @@ spring:
 xgboost:
   model:
     path: model.json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

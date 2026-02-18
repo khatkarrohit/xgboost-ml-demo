@@ -1,0 +1,13 @@
+.git/
+.gradle/
+.idea/
+build/
+*.iml
+bin/
+obj/
+model.json
+monitor_memory.ps1
+stress_test.ps1
+docker-compose.yaml
+Dockerfile
+.dockerignore
