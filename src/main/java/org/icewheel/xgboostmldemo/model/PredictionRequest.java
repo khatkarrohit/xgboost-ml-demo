@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PredictionRequest {
+    private String patientId;
     private float age;
     private float cholesterol;
     private float bloodPressure;

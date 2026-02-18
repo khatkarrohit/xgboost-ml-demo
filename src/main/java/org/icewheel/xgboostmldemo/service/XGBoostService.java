@@ -114,7 +114,14 @@ public class XGBoostService {
 
         // DMatrix is the core data structure used by XGBoost.
         // It's a memory-efficient representation of the data, optimized for the
-        // underlying C++ implementation. We specify -1.0f as the 'missing' value.
+        // underlying C++ implementation.
+        // 
+        // Dimensions:
+        // - flatFeatures: The flat float array containing data in row-major order 
+        //                 (all features for patient 1, then all for patient 2, etc.).
+        // - trainCount:   Number of rows (nrow) — how many samples we are providing.
+        // - FEATURE_COUNT: Number of columns (ncol) — how many features each sample has.
+        // - -1.0f:        Value to treat as 'missing' data (not used in our synthetic set).
         DMatrix trainMat = new DMatrix(flatFeatures, trainCount, FEATURE_COUNT, -1.0f);
         try {
             // Set labels (target values) for training
@@ -160,57 +167,77 @@ public class XGBoostService {
      * Returns a response with the probability score, category, and explanatory reason codes.
      */
     public PredictionResponse predict(PredictionRequest request) throws XGBoostError {
+        return predictBatch(List.of(request)).get(0);
+    }
+
+    /**
+     * Makes predictions for multiple health profiles in a single batch.
+     * Using nrow > 1 is much more efficient than calling predict() multiple times
+     * as it reduces JNI overhead and allows XGBoost to parallelize the work.
+     */
+    public List<PredictionResponse> predictBatch(List<PredictionRequest> requests) throws XGBoostError {
         if (this.booster == null) {
             throw new RuntimeException("Model not initialized");
         }
-
-        float[] features = request.toFeatureArray();
-        // Create a DMatrix for a single prediction row. 
-        // Even for one prediction, XGBoost requires a DMatrix wrapper.
-        DMatrix data = new DMatrix(features, 1, FEATURE_COUNT, -1.0f);
-        
-        float score;
-        float[] rowContribs;
-        
-        try {
-            // 1. Get the probability score
-            // predict() returns a 2D array [number of rows][number of classes/output]
-            float[][] prediction = this.booster.predict(data);
-            score = prediction[0][0];
-
-            // 2. Get SHAP values (contributions) using predictContrib
-            // predictContrib() calculates how much each feature contributed to the final score.
-            // The result is an array: [feature0_contrib, feature1_contrib, ..., bias_term]
-            // ntreeLimit 0 means use all trees in the model for calculation.
-            float[][] contribs = this.booster.predictContrib(data, 0);
-            rowContribs = contribs[0]; // size is FEATURE_COUNT + 1 (last is bias)
-        } finally {
-            // Free native memory allocated for this prediction's DMatrix.
-            // Using a finally block ensures we don't leak memory even if prediction fails.
-            data.dispose();
+        if (requests == null || requests.isEmpty()) {
+            return new ArrayList<>();
         }
 
-        // 3. Process reason codes
+        int nrow = requests.size();
+        float[] flatFeatures = new float[nrow * FEATURE_COUNT];
+        for (int i = 0; i < nrow; i++) {
+            float[] f = requests.get(i).toFeatureArray();
+            System.arraycopy(f, 0, flatFeatures, i * FEATURE_COUNT, FEATURE_COUNT);
+        }
+
+        // Creating a single DMatrix with nrow = requests.size()
+        // This is the "Batch" that XGBoost processes all at once.
+        DMatrix data = new DMatrix(flatFeatures, nrow, FEATURE_COUNT, -1.0f);
+        
+        try {
+            // 1. Get probability scores for all rows
+            // prediction[row_index][class_index]
+            float[][] predictions = this.booster.predict(data);
+
+            // 2. Get SHAP values for all rows
+            // contribs[row_index][feature_index]
+            float[][] contribs = this.booster.predictContrib(data, 0);
+
+            List<PredictionResponse> responses = new ArrayList<>(nrow);
+            for (int i = 0; i < nrow; i++) {
+                PredictionRequest req = requests.get(i);
+                float score = predictions[i][0];
+                float[] rowContribs = contribs[i];
+                responses.add(buildResponse(req.getPatientId(), score, rowContribs));
+            }
+            return responses;
+        } finally {
+            data.dispose();
+        }
+    }
+
+    private PredictionResponse buildResponse(String patientId, float score, float[] rowContribs) {
         List<FeatureContribution> allContribs = new ArrayList<>();
         for (int i = 0; i < FEATURE_COUNT; i++) {
             allContribs.add(new FeatureContribution(i, rowContribs[i]));
         }
         
         List<String> badReasons = allContribs.stream()
-                .filter(c -> c.value > 0.01f) // Filter out negligible contributions
-                .sorted((a, b) -> Float.compare(b.value, a.value)) // High positive first
+                .filter(c -> c.value > 0.01f)
+                .sorted((a, b) -> Float.compare(b.value, a.value))
                 .limit(2)
                 .map(c -> getReasonDescription(c.index, true))
                 .collect(Collectors.toList());
 
         List<String> goodReasons = allContribs.stream()
-                .filter(c -> c.value < -0.01f) // Filter out negligible contributions
-                .sorted((a, b) -> Float.compare(a.value, b.value)) // High negative first
+                .filter(c -> c.value < -0.01f)
+                .sorted((a, b) -> Float.compare(a.value, b.value))
                 .limit(2)
                 .map(c -> getReasonDescription(c.index, false))
                 .collect(Collectors.toList());
 
         return PredictionResponse.builder()
+                .patientId(patientId)
                 .riskScore(score)
                 .riskCategory(score > 0.5f ? 1 : 0)
                 .topBadReasons(badReasons)

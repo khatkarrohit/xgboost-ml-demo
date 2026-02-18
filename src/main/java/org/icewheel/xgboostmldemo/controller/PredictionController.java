@@ -5,6 +5,8 @@ import org.icewheel.xgboostmldemo.model.PredictionRequest;
 import org.icewheel.xgboostmldemo.model.PredictionResponse;
 import org.icewheel.xgboostmldemo.service.XGBoostService;
 import org.springframework.web.bind.annotation.PostMapping;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,6 +24,11 @@ public class PredictionController {
     @PostMapping("/predict")
     public PredictionResponse predict(@RequestBody PredictionRequest request) throws XGBoostError {
         return xgboostService.predict(request);
+    }
+
+    @PostMapping("/predict-batch")
+    public List<PredictionResponse> predictBatch(@RequestBody List<PredictionRequest> requests) throws XGBoostError {
+        return xgboostService.predictBatch(requests);
     }
 
     @PostMapping("/retrain")

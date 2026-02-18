@@ -34,8 +34,8 @@ This is the core of the application. [XGBoostService.java](src/main/java/org/ice
 
 ### 4. Data Models: `PredictionRequest.java` & `PredictionResponse.java`
 These files define the "forms" used for communication:
-- [PredictionRequest.java](src/main/java/org/icewheel/xgboostmldemo/model/PredictionRequest.java): What data we send (Age, Cholesterol, Blood Pressure, Heart Rate, Exercise Intensity).
-- [PredictionResponse.java](src/main/java/org/icewheel/xgboostmldemo/model/PredictionResponse.java): What answer we get back (Risk Score, Risk Category, and **Reason Codes**).
+- [PredictionRequest.java](src/main/java/org/icewheel/xgboostmldemo/model/PredictionRequest.java): What data we send (Patient ID, Age, Cholesterol, Blood Pressure, Heart Rate, Exercise Intensity).
+- [PredictionResponse.java](src/main/java/org/icewheel/xgboostmldemo/model/PredictionResponse.java): What answer we get back (Patient ID, Risk Score, Risk Category, and **Reason Codes**).
 
 ---
 
@@ -80,12 +80,13 @@ In `XGBoostService.java`, we capture these contributions and use a lookup map to
 
 You can interact with the running application using tools like **Postman**, **Insomnia**, or the command-line tool `curl`.
 
-### 1. Predict Heart Disease Risk
+### 1. Predict Heart Disease Risk (Single)
 **Endpoint**: `POST /api/prediction/predict`
 
 **Request Body (JSON)**:
 ```json
 {
+  "patientId": "PATIENT_123",
   "age": 55,
   "cholesterol": 240,
   "bloodPressure": 145,
@@ -97,18 +98,32 @@ You can interact with the running application using tools like **Postman**, **In
 **Response**:
 ```json
 {
+  "patientId": "PATIENT_123",
   "riskScore": 0.85,
   "riskCategory": 1,
   "topBadReasons": ["Cholesterol level is high", "Age is high"],
   "topGoodReasons": ["High exercise intensity"]
 }
 ```
-- `riskScore`: A value between 0 and 1 (e.g., `0.85` means 85% probability of risk).
-- `riskCategory`: `1` for High Risk, `0` for Low Risk.
-- `topBadReasons`: Factors that increased the risk.
-- `topGoodReasons`: Factors that decreased the risk.
 
-### 2. Retrain the Model
+### 2. Predict Heart Disease Risk (Batch)
+**Endpoint**: `POST /api/prediction/predict-batch`
+
+**Request Body (JSON)**:
+```json
+[
+  { "patientId": "P1", "age": 55, "cholesterol": 240, "bloodPressure": 145, "heartRate": 80, "exerciseIntensity": 2 },
+  { "patientId": "P2", "age": 25, "cholesterol": 160, "bloodPressure": 110, "heartRate": 65, "exerciseIntensity": 9 }
+]
+```
+
+**Response**:
+A list of prediction objects (one for each input row).
+
+**Why use Batch Prediction?**
+As explained in the "Technical Deep Dive", sending multiple patients in a single `predict-batch` call is much more efficient than calling `predict` multiple times in a loop. It reduces the overhead of crossing the boundary between Java and the native XGBoost C++ engine (JNI) and allows for better internal parallelization.
+
+### 3. Retrain the Model
 If you want the model to learn again from a new set of synthetic data:
 **Endpoint**: `POST /api/prediction/retrain`
 
@@ -124,13 +139,24 @@ In most Java programs, we use `Arrays` or `Lists` to store data. However, XGBoos
 - It handles things like "missing values" and memory layout so the model can learn as fast as possible.
 - In `XGBoostService.java`, you will see us converting our `float[]` arrays into `DMatrix` before training or predicting.
 
-### 2. Manual Memory Management (`dispose()`)
+### 2. Understanding Data Dimensions (`nrow` and `ncol`)
+When creating a `DMatrix` from a flat array (like `float[]`), XGBoost needs to know the shape of your data:
+- **`nrow` (Number of Rows)**: This is the number of **samples** or **records** you are providing.
+    - For **Training**, `nrow` is 1000 because we are feeding 1000 people's data at once.
+    - For **Single Prediction**, `nrow` is 1 because we are asking for a result for only one specific person.
+- **`ncol` (Number of Columns)**: This is the number of **features** or **attributes** each sample has. Since we give XGBoost a **flat list of numbers**, it needs to know how many columns are in each row to correctly "reshape" the list into a table. In this project, it is always `5` (Age, Cholesterol, BP, HR, Exercise).
+
+**When is `nrow` more than 1?**
+1. **Training**: To learn patterns from a large group of data points.
+2. **Batch Prediction**: If you have a list of 100 people and want to get all their risk scores at once. It is much faster than calling the "predict" function 100 times in a loop, as it allows XGBoost to process them in parallel.
+
+### 3. Manual Memory Management (`dispose()`)
 Java usually handles memory automatically (Garbage Collector). But because `DMatrix` and `Booster` use **Native Memory** (memory outside the normal Java heap, managed by C++), Java doesn't know when to clean it up.
 - We must manually call **`.dispose()`** on every `DMatrix` and `Booster` object once we are done with them.
 - **Best Practice**: Use `try-finally` blocks (or `@PreDestroy` for long-lived objects like the `Booster`) to ensure that `dispose()` is called even if an error occurs.
 - If we forget this, the application will leak memory, which can lead to `OutOfMemoryError` or system crashes, even if the Java Garbage Collector seems to have plenty of free space.
 
-### 3. Training Hyperparameters (Why 1000 and 50?)
+### 4. Training Hyperparameters (Why 1000 and 50?)
 In `XGBoostService.java`, we use specific numbers for training:
 - **`trainCount = 1000`**: This is the number of "virtual patients" we generate to teach the model. For a simple problem with 5 features, 1000 examples are enough for the model to learn the patterns without taking too much time or memory.
 - **`round = 50`**: This is the number of "boosting rounds" (number of trees the model builds). Each new tree tries to fix the mistakes of the previous ones. 50 rounds are usually enough for this problem to reach high accuracy. Using too many rounds (e.g., 5000) might make the model "overfit," meaning it starts memorizing the fake data instead of learning general patterns.

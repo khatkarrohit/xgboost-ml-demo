@@ -12,6 +12,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PredictionResponse {
+    private String patientId;
     private float riskScore;
     private int riskCategory; // 0 for low, 1 for high
     private List<String> topBadReasons;

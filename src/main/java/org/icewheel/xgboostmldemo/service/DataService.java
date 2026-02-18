@@ -20,6 +20,7 @@ public class DataService {
         List<PredictionRequest> data = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             data.add(PredictionRequest.builder()
+                    .patientId("SYNTHETIC_" + i)
                     .age(20 + random.nextFloat() * 60)
                     .cholesterol(150 + random.nextFloat() * 150)
                     .bloodPressure(90 + random.nextFloat() * 90)
