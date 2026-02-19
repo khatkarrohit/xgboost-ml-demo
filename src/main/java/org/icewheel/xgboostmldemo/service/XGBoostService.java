@@ -221,7 +221,8 @@ public class XGBoostService {
             if (shouldDispose) {
                 data.dispose();
             } else {
-                System.out.println("[WARNING] DMatrix NOT disposed! Native memory leak simulated.");
+                // Silencing the print to allow faster leak for OOM demonstration
+                // System.out.println("[WARNING] DMatrix NOT disposed! Native memory leak simulated.");
             }
         }
     }

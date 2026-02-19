@@ -7,8 +7,8 @@ services:
       resources:
         limits:
           # Total memory limit for the container (including heap and native)
-          # With -Xmx256m, if native memory exceeds ~250MB, the container will be OOMKilled
-          memory: 512M
+          # With -Xmx256m, if native memory exceeds ~60MB, the container will be OOMKilled
+          memory: 320M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s

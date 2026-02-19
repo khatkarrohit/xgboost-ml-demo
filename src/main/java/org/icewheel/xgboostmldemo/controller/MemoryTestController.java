@@ -35,17 +35,21 @@ public class MemoryTestController {
         
         System.out.println("Starting stress test: count=" + count + ", leak=" + leak);
         
-        // Use a reasonable batch size to balance performance and native memory leak visibility
-        int batchSize = 1000;
+        // Use a small batch size to make the native memory leak more aggressive
+        int batchSize = 100;
         int batches = Math.max(1, count / batchSize);
         
         for (int i = 0; i < batches; i++) {
-            List<PredictionRequest> requests = dataService.generateFeatures(batchSize);
-            // Calling the version of predictBatch that allows toggling dispose()
-            xgboostService.predictBatch(requests, !leak);
-            
-            if (i % 10 == 0) {
-                System.out.println("Processed " + (i * batchSize) + " requests...");
+            try {
+                List<PredictionRequest> requests = dataService.generateFeatures(batchSize);
+                // Calling the version of predictBatch that allows toggling dispose()
+                xgboostService.predictBatch(requests, !leak);
+                
+                if (i % 100 == 0) {
+                    System.out.println("Processed " + (i * batchSize) + " requests...");
+                }
+            } catch (XGBoostError e) {
+                throw new RuntimeException(e);
             }
         }
         
